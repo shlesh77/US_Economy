@@ -315,7 +315,7 @@ ggplot(data = rgdp, aes(x = year, y = gY, color = "RGDP")) +
   geom_line(linetype = "solid", linewidth = 1) +
   geom_smooth(method = "lm", formula = y ~ x, se = FALSE, color = "red") +  # Add linear regression line
   labs(x = "Year", y = "RGDP (in thousands)", 
-       title = "Figure 1: U.S. Real Gross Domestic product") +
+       title = "Figure 3: U.S. Real Gross Domestic Product Growth Rate") +
   scale_color_manual(name = NULL, values = "darkgreen", labels = "Growth Rate") +
   scale_x_continuous(breaks = seq(1945, 2025, 10)) +
   scale_y_continuous(breaks = seq(-.05, 0.1, 0.02)) +
