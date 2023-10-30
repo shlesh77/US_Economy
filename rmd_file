@@ -1,0 +1,356 @@
+---
+title: "Path followed by US Economy"
+author: "Bijay Paudyal"
+date: "2023-10-17"
+output:
+  html_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+### Setting up global knitr chunk to control code display options
+
+knitr::opts_chunk$set(echo = FALSE,
+                      eval=TRUE,
+                      warning = FALSE,
+                      results= 'asis',
+                      error=FALSE,
+                      scipen = 999,
+                      scientific = FALSE)
+```
+
+
+```{r echo=FALSE, results='hide', warning=FALSE, message=FALSE}
+#Load Libraries
+library(haven)    # to import data from various statistical packags - here from stata
+library(tidyverse) # to visualize, manipulate and analyze the data
+library(nls2)     #to run non linear regression
+library(janitor)
+library(knitr)    # to create tables 
+library(readxl)   # to read xlsx file 
+library(tsibble)  #manage and analyze time series data 
+library(forecast) #to forecast and predict
+library(tidyr)    #to tidy and reshape the data
+library(dplyr)    # to filter, arrange and summarize the data
+library(zoo)      # to apply moving average smoothing technique
+library(writexl)  #to export data file to excel file
+#library(kableExtra)
+library(broom)    #fit a linear regression model and extract the p-values
+```
+
+### PATH FOLLOWED BY US ECONOMY
+#### Introduction
+
+This project describes the performance of U.S. economy from 1948 to 2020. It will examine past and current economic growth trends, as well as several models that can be used to explain and predict U.S. economic growth rates in terms of production, labor, and capital till 2040. his study is a broad overview with several components that delve further into the inputs and outputs of various growth rates in the U.S. economy.
+
+#### Description of Data
+The Real GDP (Gross domestic Product) data series is used for the analysis in this project. Other data used are the capital and employment. The details of the data are presented in table 1 below.
+```{r}
+
+data_source<-read_xlsx("C:\\Users\\bpaudyal\\Desktop\\Projects\\US ECONOMY\\us_data.xlsx", sheet=2)
+
+
+
+data_source <- data_source %>% 
+  set_names(unlist(data_source[1, ]))
+data_source <- data_source[-1, ]
+
+
+data_source[1:5, 3] <- "[Bureau of Economic Analysis](https://www.bea.gov/)"
+data_source[6, 3] <- "[Federal Reserve Board of Governors](https://www.federalreserve.gov/releases/G17/caputl.htm)"
+data_source %>%
+    kable(caption = "Table 1: Description of Data",  
+          format = 'html', linesep = '',
+          booktabs = TRUE,
+          align = 'l')
+
+
+```
+
+<p>
+\
+
+The entire market value of all final goods and services produced inside a country in a given period of time is defined as the gross domestic product (GDP), which is one of the most important indicators of economic activity (usually a calendar year).
+Real Gross Domestic Product (RGDP) refers to the adjusted market value of goods and services produced by the factors of production in a year. It is obtained by dividing the Gross domestic product by a suitable price index.
+Capital is the current cost of net stock of fixed assets and consumer durable, adjusted for the effects of inflation. Employment refers to the number of employees working on full time. Here, the data is adjusted for part-time schedules by converting to a full-time basis.
+</p>
+
+#### The path followed by U.S. economy
+Figure 1 shows the growth trend of Real GDP of the U.S. from year 1948 to 2020 in 2012 dollars. The growth rate follows an exponential trend rather than linear one with average annual growth rate of 3.08 percent. We can observe that the recessions occurred during the year 1958, 1974-75, 2008-09, and 2020 and a few time in a single years in between.
+
+
+```{r}
+rgdp<-read_xlsx("C:\\Users\\bpaudyal\\Desktop\\Projects\\US ECONOMY\\us_data.xlsx", sheet=1)
+lrow<-nrow(rgdp)
+
+rgdp %>%
+  ggplot(aes(x = year, y = rgdp, color = "RGDP")) +
+  geom_line(linetype = "solid", linewidth = 1) +
+  labs(x = "Year", y = "RGDP (in thousands)", 
+       title = "Figure 1: U.S. Real Gross Domestic product") +
+  scale_color_manual(name = NULL, values = "blue", labels = "Real GDP") +
+  scale_x_continuous(breaks = seq(1945, 2025, 5)) +
+  scale_y_continuous(breaks = seq(0, 20000, 2000)) +
+  theme_bw() +  # Use the basic theme as a starting point
+  theme(
+    panel.background = element_rect(fill = "white"),  # Set background color to white
+    panel.grid.major = element_line(colour = "gray80"),  # Dimmed horizontal grid lines
+    panel.grid.minor = element_blank(),  # Remove vertical grid lines
+    text = element_text(color = "black"),  # Set text color to black
+    legend.text = element_text(color = "black"),  # Set legend text color to black
+    legend.background = element_rect(fill = "white", color = "black"),  # Customize legend background
+    legend.key = element_rect(fill = "white", color = "black"),  # Customize legend key
+    #legend.position = "bottom"  # Move the legend to the bottom
+  )
+```
+
+
+Using the Real GDP data, we can observe the growth of the US economy. For this, let us consider a simple regression model (first order model),\n 
+\[ Y_t = Y_0 \cdot e^{rt} \tag{1}\] ---<sup>[1](#equation-1)</sup>
+
+The above model shows that initial value $Y_0$ is growing at a constant rate, $r$ , to obtain the value of \(Y_t\) for the variable $t$. For the analysis of our data, we consider 𝑌0 as the Real GDP in the year 1948, $Y_t$ is the Real GDP in year $𝑡$, and $r$ is the growth rate. In order to fit this model to the data, we can linearize this exponential model using the log function<sup>[1](#description-1)</sup>.
+\[ln(Y_t)=ln(Y_0)+rt \tag{2}\] 
+where, 
+
+$ln(Y_t)$ : Real  GDP   or the explained variable   
+$t$ : Time period in years     
+$ln(Y_0)$ : Intercept parameter    
+$r$ : Slope parameter   
+```{r extend_year}
+
+#extending the year to 2040
+lrow <- tail(rgdp$year, n = 1)
+
+rgdp <- rgdp %>%
+              mutate(ln_y=round(log(rgdp),2)) %>% #creating log f y
+              mutate(year = ifelse(
+                    year<=lrow,year, year+1:(2040 -lrow))) %>%  #extending year to 2040
+              complete(year = seq(1948, 2040)) %>% 
+              mutate(t = row_number()-1) %>% 
+              mutate(t_sq=t^2)
+
+
+```
+
+
+
+
+```{r}
+# Load the broom package (if not already installed)
+# install.packages("broom")
+
+
+# Fit a linear regression model
+model_a <- lm(ln_y ~ t, data = rgdp)
+
+# Extract p-values
+p_values <- summary(model_a)$coefficients[, "Pr(>|t|)"]
+
+# Function to convert p-values to significance levels
+p_to_asterisks <- function(p) {
+  if (p < 0.001) return("***")
+  if (p < 0.01) return("**")
+  if (p < 0.05) return("*")
+  return("")
+}
+rsquared <- summary(model_a)$r.squared
+
+# Apply the function to convert p-values to significance levels
+asterisks <- sapply(p_values, p_to_asterisks)
+
+# Create a data frame to store the results
+regression_matrix <- data.frame(
+  coefficient = names(p_values),
+  estimate = coef(model_a),
+  std_error = summary(model_a)$coefficients[, "Std. Error"],
+  significance = asterisks
+)
+regression_matrix<-regression_matrix %>% 
+  mutate(std_error=round(std_error, digits = 6)) %>% 
+  mutate(estimate=round(estimate, 4))
+
+rgdp<-rgdp %>% 
+        mutate(fom_ln_y=regression_matrix[1,2]+regression_matrix[2,2]*t) %>% 
+        mutate(fom_y=exp(fom_ln_y))
+
+
+```
+
+
+
+We estimate the model (2), we regress, log value of RGDP, $ln(Y_t)$ on time, T. Doing so, we obtain<sup>[2](#description-2)</sup>,
+
+
+\[
+\ln(Y_t) = `r regression_matrix[1,2]` + `r regression_matrix[2,2]` t , R^2 = `r rsquared` \tag{3} 
+\]
+
+
+The SE of intercept is `r regression_matrix[1,3]`\(^{`r regression_matrix[1,4]`} \)and SE of t is `r regression_matrix[2,3]` \(^{`r regression_matrix[2,4]`} \)
+
+
+
+If \(ln(Y_t) = `r regression_matrix[1,2]` + `r regression_matrix[2,2]` t\), then we can exponentiate to obtain the model \(Y_t = e^{`r regression_matrix[1,2]` + `r regression_matrix[2,2]` t}\) .
+
+
+
+Figure 2 presents this first order exponential model along with our actual real GDP data. Our regression indicates that the U.S. economy has grown at an average rate of `r regression_matrix[2,2]*100` percent over the 1949-2020 period. This is further supported by the high $R^2$ value \(R^2= `r round(rsquared,3)`)\), which indicates our model fits the data. Using the rule of 72 to interpret the growth of this function, the economy doubles every \( 72/`r round((regression_matrix[2,2]*100),3)` ≈ `r ceiling(72/( regression_matrix[2,2]*100))` \) $years$.
+
+
+##### model2
+As the first order exponential model assumes constant the growth rate, the second order model allows the rate of growth with a restricted change. This allows us to see if the growth rate increases or decreases over time. The second order exponential growth model is given by:
+\[ Y_t = Y_0 \cdot e^{r_1t+r_2 t^2} \tag{4}\]
+
+The second order model (4) is the higher order model which shows dynamic rate of growth in the Real GDP. As the above model is non-linear, we must transform it into linear form to run the linear regression. Thus, the second order exponential model can be transformed to linear form using the log function which gives<sup>[3](#description-3)</sup>:
+\[ln(Y_t)=ln(Y_0)+r_1t +r_2t^2\tag{5}\]
+
+Where, $r_2$ = coefficient of square of time, $t^2$.
+It is obvious that the first order model (1) is the special case of second order model (4) where $r_2=0$.
+
+#### regressing model2
+As we regress the $ln(Y_t)$ on time, $(t)$ and square of time $(t^2), we obtain,
+
+```{r}
+model_b <- lm(ln_y ~ t+t_sq, data = rgdp)
+
+# Extract p-values
+p_values <- summary(model_b)$coefficients[, "Pr(>|t|)"]
+
+# Function to convert p-values to significance levels
+p_to_asterisks <- function(p) {
+  if (p < 0.001) return("***")
+  if (p < 0.01) return("**")
+  if (p < 0.05) return("*")
+  return("")
+}
+rsquared <- summary(model_b)$r.squared
+
+# Apply the function to convert p-values to significance levels
+asterisks <- sapply(p_values, p_to_asterisks)
+
+# Create a data frame to store the results
+regression_matrix <- data.frame(
+  coefficient = names(p_values),
+  estimate = coef(model_b),
+  std_error = summary(model_b)$coefficients[, "Std. Error"],
+  significance = asterisks
+)
+regression_matrix<-regression_matrix %>% 
+  mutate(std_error=round(std_error, digits = 6)) %>% 
+  mutate(estimate=round(estimate, 4))
+
+rgdp<-rgdp %>% 
+        mutate(som_ln_y=regression_matrix[1,2]+regression_matrix[2,2]*t+regression_matrix[3,2]*t_sq) %>% 
+        mutate(som_y=exp(som_ln_y))
+```
+
+\[
+\ln(Y_t) = `r regression_matrix[1,2]` + `r regression_matrix[2,2]` t + (`r regression_matrix[3,2]`) t^2 \tag{6} 
+\]
+
+
+The SE of intercept is `r regression_matrix[1,3]`\(^{`r regression_matrix[1,4]`} \)and SE of t is `r regression_matrix[2,3]` \(^{`r regression_matrix[2,4]`}\) and SE of \( t^2 \)is `r regression_matrix[3,3]` \(^{`r regression_matrix[3,4]`}\) while  \(R^2 = `r round(rsquared,3)` \)
+
+From (6) we can see both the initial growth rate of the real GDP and the change in the growth rate over time. As the coefficient of $t^2$ is negative, we can verify that the growth rate is decreasing over time. The $r_1$ parameter value of `r round(regression_matrix[2,2],3)` indicates the growth rate in 1948 was `r round(regression_matrix[2,2]*100,3)`%. The $r_2$ value `r round(regression_matrix[3,2],4)` indicates that the growth rate is increasing in a diminishing rate by `r abs(round(regression_matrix[3,2]*100,4))`% every year. This means that the expected growth rate will decrease by 1% every `r 1/abs(round(regression_matrix[3,2]*100,4))` years.
+
+
+Again, if \(\ln(Y_t) = `r regression_matrix[1,2]` + `r regression_matrix[2,2]` t + (`r regression_matrix[3,2]`)\), then we can exponentiate to obtain the model \(Y_t = e^(`r regression_matrix[1,2]` + `r regression_matrix[2,2]` t + (`r regression_matrix[3,2]`) t^2)\). And, we can verify from our second order exponential model that the constant rate of growth obtained in the first order model is not the best one.
+
+Figure 2 indicates the first order and second order exponential models plotted against the Real GDP data from the year `r rgdp$year[1]` to **`r rgdp$year[lrow]`** We can see that the first order exponential model is increasing linearly and does not follow the path of real GDP. Whereas, the second order exponential model fits completely with the trend of Real GDP.
+
+```{r}
+rgdp %>%
+  ggplot(aes(x = year))+
+    geom_line(aes(y = rgdp, color = "RGDP"),
+              linetype="solid",
+              linewidth=1)+
+    geom_line(aes(y = fom_y, color = "fom_y"),
+              linetype="solid",
+              linewidth=1)+
+    geom_line(aes(y = som_y, color = "som_y"),
+              linetype="solid",
+              linewidth=1)+
+    labs(x = "Year", y = "RGDP (in thousands)", 
+       title = "Figure 2: U.S. Real Gross Domestic product vs Models") +
+  scale_color_manual(name = "RGDP", 
+                           values = c("blue", "red","green"),
+                           labels = c("Real GDP", "First Order Model","Second Order Model"))+
+  scale_x_continuous(breaks = seq(1945,2050, by = 10)) +
+  scale_y_continuous(breaks = seq(0, 50000, 5000)) +
+  theme_bw() +  # Use the basic theme as a starting point
+  theme(
+    panel.background = element_rect(fill = "white"),  # Set background color to white
+    panel.grid.major = element_line(colour = "gray80"),  # Dimmed horizontal grid lines
+    panel.grid.minor = element_blank(),  # Remove vertical grid lines
+    text = element_text(color = "black"),  # Set text color to black
+    legend.text = element_text(color = "black"),  # Set legend text color to black
+    legend.background = element_rect(fill = "white", color = "black"),  # Customize legend background
+    legend.key = element_rect(fill = "white", color = "black"),  # Customize legend key
+    #legend.position = "bottom"  # Move the legend to the bottom
+  )
+
+```
+
+
+
+### Modeling and Forecasting Growth Rates of U.S. Production, Employment, and Capital.
+To measure of the growth rate for a parameter, we will use the log difference. The log difference equation<sup>[4](#description-4)</sup> is commonly used to model the growth rate of a parameter and it is given by the equation:\[
+ln(Y_t) -ln(Y_{t-1})=r \tag{7}
+\]
+
+Let, $gY$ denote the growth in real GDP of the U.S., which is given by:
+\[
+gY =ln(Y_2) - ln(Y_1) \tag{8}
+\]
+
+```{r}
+
+
+rgdp<- rgdp %>% 
+        mutate(gY=ln_y-lag(ln_y, default=first(ln_y)))
+
+
+
+ggplot(data = rgdp, aes(x = year, y = gY, color = "RGDP")) +
+  geom_line(linetype = "solid", linewidth = 1) +
+  geom_smooth(method = "lm", formula = y ~ x, se = FALSE, color = "red") +  # Add linear regression line
+  labs(x = "Year", y = "RGDP (in thousands)", 
+       title = "Figure 1: U.S. Real Gross Domestic product") +
+  scale_color_manual(name = NULL, values = "darkgreen", labels = "Growth Rate") +
+  scale_x_continuous(breaks = seq(1945, 2025, 10)) +
+  scale_y_continuous(breaks = seq(-.05, 0.1, 0.02)) +
+  theme_bw() +
+  theme(
+    panel.background = element_rect(fill = "white"),
+    panel.grid.major = element_line(colour = "gray80"),
+    panel.grid.minor = element_blank(),
+    text = element_text(color = "black"),
+    legend.text = element_text(color = "black"),
+    legend.background = element_rect(fill = "white", color = "black"),
+    legend.key = element_rect(fill = "white", color = "black")
+  )
+```
+
+The growth of Real GDP is illustrated by green curve in figure 4. We can observe that the growth rate is consistent to a certain average, that is, it is moving with certain fluctuation and is positive except in the years 1949, 1954, 1958, 1974-75, 1980, 1982, 1991, 2008-09 and 2020. We can see that the negative growth rate is observed in approximately 8-10 years.
+
+---
+
+<footer id="description-1">
+**<sup>1</sup>** Starting with \(1\), taking the natural log on both sides we get \(ln(Y_t)=ln(Y_0\cdot e^{rt})\). Using the property of log function, we can separate \(Y_0\) from \(e^{rt}\) to obtain \(ln(Y_t)=ln(Y_0)+ln(e^{rt}) +\). Moving the power of the exponent outside we get, \(ln(Y_t)=ln(_0)+rt \cdot ln(e)\). Since \(ln(e)=1\) we get \(ln(Y_t) =ln(Y_0) +rt\)
+</footer> \n
+
+
+<footer id="description-2">
+**<sup>2</sup>** As is standard, we use asterisk system to indicate the statistical significance level. The statistical question of interest is whether the estimate coefficient is close enough to zero that we can say it is zero. We assign three asterisks (\*\*\*) when $𝑝 ≤ 0.01$. This indicates we have at least 99% confidence that the estimated coefficient is statistically different than zero. The two asterisk (\*\*) case indicates $0.01 < 𝑝 ≤ 0.05$, meaning we have between 95% and 99% confidence. The one asterisk (*) case indicates $0.05 < 𝑝 ≤ 0.10$, meaning we have between 90% and 95% confidence. No asterisks indicates $𝑝 > 0.10$, meaning we have less than 90% confidence.
+</footer>
+
+<footer id="description-3">
+**<sup>3</sup>** Starting with \(4\), taking the natural log on both sides we get \(ln(Y_t)=ln(Y_0\cdot e^{r_1t+r_2t^2})\). Using the property of log function, we can separate \(Y_0\) from \(e^{r_1t+r_2t^2}\) to obtain \(ln(Y_t)=ln(Y_0)+ln(e^{r_1t+r_2t^2}) +\). Moving the power of the exponent outside we get, \(ln(Y_t)=ln(Y_0)+(r_1t+r_2t^2) \cdot ln(e)\). Since \(ln(e)=1\) we get \(ln(Y_t) =ln(Y_0) +r_1t+r_2t^2\)
+</footer> \n
+
+<footer id="description-4">
+**<sup>3</sup>** Starting with \(2\), we have \( ln(Y_t) = ln(Y_0) + r(t)\). Evaluating the growth in one prior period, we get \(ln(Y_{t-1})=ln(Y_0)+r(t-1) \). Now, subtracting the prior period i.e. $t-1$ equation from the $t$ period, (2), we obtain  
+\(ln(Y_t)-ln(Y_{t-1})=ln(Y_0) +rt-ln(Y_0)-r(t-1)  \). This simplifies down into \(ln(Y_t)-ln(Y_{t-1})=r\).
+
+
+
